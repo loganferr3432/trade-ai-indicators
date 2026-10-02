@@ -1,0 +1,163 @@
+//@version=5
+strategy("AI Trading Strategy - Crypto 1H", overlay=true, margin_long=100, margin_short=100)
+
+// ============================================================================
+// AI TRADING STRATEGY WITH POPULAR INDICATORS
+// Market: Cryptocurrency | Timeframe: 1 Hour
+// Risk Profile: High to Medium
+// ============================================================================
+
+// INPUT PARAMETERS
+// ============================================================================
+group_risk = "Risk Management"
+risk_percent = input(2.0, "Risk % per Trade", minval=0.5, maxval=5.0, group=group_risk)
+stop_loss_atr_mult = input(2.0, "SL ATR Multiplier", minval=1.0, maxval=3.0, group=group_risk)
+take_profit_ratio = input(2.0, "TP/SL Ratio", minval=1.0, maxval=5.0, group=group_risk)
+
+group_rsi = "RSI Settings"
+rsi_length = input(14, "RSI Length", minval=5, maxval=50, group=group_rsi)
+rsi_overbought = input(70, "RSI Overbought", minval=50, maxval=90, group=group_rsi)
+rsi_oversold = input(30, "RSI Oversold", minval=10, maxval=50, group=group_rsi)
+
+group_macd = "MACD Settings"
+macd_fast = input(12, "MACD Fast", minval=5, maxval=35, group=group_macd)
+macd_slow = input(26, "MACD Slow", minval=10, maxval=50, group=group_macd)
+macd_signal = input(9, "MACD Signal", minval=5, maxval=20, group=group_macd)
+
+group_ema = "EMA Settings"
+ema_short = input(9, "EMA Short", minval=3, maxval=20, group=group_ema)
+ema_mid = input(21, "EMA Medium", minval=10, maxval=50, group=group_ema)
+ema_long = input(50, "EMA Long", minval=30, maxval=200, group=group_ema)
+
+group_bb = "Bollinger Bands Settings"
+bb_length = input(20, "BB Length", minval=10, maxval=50, group=group_bb)
+bb_mult = input(2.0, "BB Multiplier", minval=1.0, maxval=3.0, group=group_bb)
+
+group_atr = "ATR Settings"
+atr_length = input(14, "ATR Length", minval=5, maxval=50, group=group_atr)
+
+group_trading = "Trading Settings"
+use_long = input(true, "Enable Long Trades", group=group_trading)
+use_short = input(true, "Enable Short Trades", group=group_trading)
+max_trades = input(3, "Max Concurrent Trades", minval=1, maxval=10, group=group_trading)
+
+// ============================================================================
+// INDICATOR CALCULATIONS
+// ============================================================================
+
+// RSI - Relative Strength Index
+rsi = ta.rsi(close, rsi_length)
+
+// MACD - Moving Average Convergence Divergence
+[macd_line, signal_line, histogram] = ta.macd(close, macd_fast, macd_slow, macd_signal)
+
+// EMA - Exponential Moving Averages
+ema9 = ta.ema(close, ema_short)
+ema21 = ta.ema(close, ema_mid)
+ema50 = ta.ema(close, ema_long)
+
+// Bollinger Bands
+[bb_middle, bb_upper, bb_lower] = ta.bb(close, bb_length, bb_mult)
+
+// ATR - Average True Range
+atr = ta.atr(atr_length)
+
+// Volume Analysis
+volume_ma = ta.sma(volume, 20)
+volume_spike = volume > volume_ma * 1.5
+
+// ============================================================================
+// AI-STYLE SIGNAL LOGIC
+// ============================================================================
+
+// TREND CONFIRMATION
+trend_bullish = ema9 > ema21 and ema21 > ema50
+trend_bearish = ema9 < ema21 and ema21 < ema50
+
+// MOMENTUM SIGNALS
+rsi_bullish = rsi > rsi_oversold and rsi < rsi_overbought
+rsi_oversold_signal = rsi < rsi_oversold
+rsi_overbought_signal = rsi > rsi_overbought
+
+macd_bullish = macd_line > signal_line and histogram > 0
+macd_bearish = macd_line < signal_line and histogram < 0
+
+// VOLATILITY & SUPPORT/RESISTANCE
+price_above_bb_middle = close > bb_middle
+price_below_bb_middle = close < bb_middle
+price_near_bb_lower = close < bb_middle and close > bb_lower
+price_near_bb_upper = close > bb_middle and close < bb_upper
+
+// COMPOSITE BUY SIGNAL (AI Logic)
+long_signal = trend_bullish and macd_bullish and rsi_bullish and price_above_bb_middle and volume_spike
+long_entry = long_signal and use_long
+
+// COMPOSITE SELL SIGNAL (AI Logic)
+short_signal = trend_bearish and macd_bearish and (rsi_overbought_signal or rsi < rsi_oversold) and price_below_bb_middle and volume_spike
+short_entry = short_signal and use_short
+
+// ============================================================================
+// POSITION MANAGEMENT
+// ============================================================================
+
+// Calculate position size based on risk
+account_balance = strategy.equity
+position_size = math.max(1, math.floor(account_balance * (risk_percent / 100) / atr))
+
+// Stop Loss & Take Profit
+sl_distance = atr * stop_loss_atr_mult
+tp_distance = sl_distance * take_profit_ratio
+
+long_stop = close - sl_distance
+long_target = close + tp_distance
+
+short_stop = close + sl_distance
+short_target = close - tp_distance
+
+// ============================================================================
+// STRATEGY EXECUTION
+// ============================================================================
+
+// Track open trades
+open_trades = strategy.opentrades
+
+// LONG ENTRY
+if long_entry and open_trades < max_trades
+    strategy.entry("Long", strategy.long, qty=position_size, comment="AI Long Signal")
+    strategy.exit("Long TP/SL", "Long", stop=long_stop, limit=long_target, comment="Long Exit")
+
+// SHORT ENTRY
+if short_entry and open_trades < max_trades
+    strategy.entry("Short", strategy.short, qty=position_size, comment="AI Short Signal")
+    strategy.exit("Short TP/SL", "Short", stop=short_stop, limit=short_target, comment="Short Exit")
+
+// ============================================================================
+// VISUALIZATION
+// ============================================================================
+
+// Plot EMAs
+plot(ema9, "EMA 9", color=color.blue, linewidth=1)
+plot(ema21, "EMA 21", color=color.orange, linewidth=1)
+plot(ema50, "EMA 50", color=color.red, linewidth=1)
+
+// Plot Bollinger Bands
+plot(bb_upper, "BB Upper", color=color.gray, linewidth=1, alpha=50)
+plot(bb_middle, "BB Middle", color=color.gray, linewidth=1, alpha=50)
+plot(bb_lower, "BB Lower", color=color.gray, linewidth=1, alpha=50)
+fill(plot(bb_upper), plot(bb_lower), color=color.blue, alpha=5)
+
+// Signal Markers
+plotshape(long_entry, "Long Signal", shape.labelup, location.belowbar, color.new(color.green, 0), size=size.small, text="BUY")
+plotshape(short_entry, "Short Signal", shape.labeldown, location.abovebar, color.new(color.red, 0), size=size.small, text="SELL")
+
+// RSI Indicator (Separate Panel)
+// hline(rsi_overbought, "Overbought", color=color.red, linestyle=hline.dashed)
+// hline(rsi_oversold, "Oversold", color=color.green, linestyle=hline.dashed)
+// plot(rsi, "RSI", color=color.purple)
+
+// ============================================================================
+// ALERTS
+// ============================================================================
+
+alertcondition(long_entry, title="AI Long Signal", message="Buy Signal Generated - Check conditions")
+alertcondition(short_entry, title="AI Short Signal", message="Sell Signal Generated - Check conditions")
